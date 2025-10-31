@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>My Simple Blog — Post & Comments</title>
+  <style>
+    :root{
+      --bg:#0f1724;
+      --card:#0b1220;
+      --muted:#9aa4b2;
+      --accent:#6ee7b7;
+      --glass: rgba(255,255,255,0.03);
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body{height:100%; margin:0; background:linear-gradient(180deg,#071026 0%, #071b2b 100%); color: #e6eef6;}
+    .wrap{max-width:900px; margin:40px auto; padding:20px;}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+    header h1{margin:0;font-size:1.6rem;letter-spacing:-0.3px}
+    header p{margin:0;color:var(--muted);font-size:.95rem}
+
+    .post{background:var(--card); border-radius:12px; padding:22px; box-shadow: 0 6px 30px rgba(2,6,23,0.6); }
+    .post .meta{color:var(--muted); font-size:.9rem;margin-bottom:12px}
+    .post h2{margin:0 0 12px 0; font-size:1.4rem}
+    .post p{line-height:1.6; color:#dfeaf6}
+
+    /* comment area */
+    .comments{margin-top:20px}
+    .comment-form{display:grid; gap:8px; grid-template-columns: 1fr 100px; align-items:end}
+    .comment-form .field{grid-column:1 / -1; display:flex; gap:8px}
+    input[type="text"], textarea{
+      width:100%; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.04);
+      background:var(--glass); color:inherit; resize:vertical; min-height:44px;
+      outline:none; box-sizing:border-box;
+    }
+    textarea{min-height:100px}
+    .btn{
+      background:linear-gradient(90deg,var(--accent), #4fd1c5); color:#002127; border:none; padding:10px 14px;
+      border-radius:10px; cursor:pointer; font-weight:600; box-shadow: 0 6px 18px rgba(46,229,179,0.08);
+    }
+    .btn.secondary{background:transparent; color:var(--muted); border:1px solid rgba(255,255,255,0.04)}
+    .comments-list{margin-top:18px; display:flex; flex-direction:column; gap:12px}
+    .comment{
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.015));
+      border-radius:10px; padding:12px; display:flex; gap:12px; align-items:flex-start;
+      border:1px solid rgba(255,255,255,0.02);
+    }
+    .avatar{width:44px;height:44px;border-radius:50%; display:flex;align-items:center;justify-content:center;
+      background:rgba(255,255,255,0.03); color:var(--muted); font-weight:700; font-size:.95rem}
+    .comment-body{flex:1}
+    .comment-body .who{display:flex; gap:8px; align-items:center}
+    .comment-body .who strong{font-size:0.98rem}
+    .comment-body .time{color:var(--muted); font-size:.82rem}
+    .comment-body p{margin:6px 0 0 0; color:#dfeaf6; line-height:1.5}
+    .comment-actions{display:flex; gap:8px; margin-left:8px}
+    .small{font-size:.82rem; color:var(--muted)}
+
+    @media (max-width:640px){
+      .comment-form{grid-template-columns:1fr; align-items:stretch}
+      .comment-actions{margin-left:0}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>My Blog</h1>
+        <p>Thoughts, code, and small experiments — with a comment section below.</p>
+      </div>
+    </header>
+
+    <article class="post" id="post-1" data-post-id="post-1" aria-labelledby="post-title">
+      <div class="meta">Category • October 31, 2025</div>
+      <h2 id="post-title">A small experiment: client-side comments using localStorage</h2>
+      <p>
+        This post demonstrates a minimal blog layout and a comment section that runs entirely in the browser.
+        Comments are saved to your browser's localStorage so they'll persist on reload on the same device.
+      </p>
+
+      <section class="comments" aria-label="Comments">
+        <h3 style="margin-top:0">Comments</h3>
+
+        <form id="comment-form" class="comment-form" autocomplete="off" aria-label="Add a comment">
+          <div class="field" style="gap:8px">
+            <input id="name" type="text" placeholder="Your name" maxlength="60" required aria-label="Your name">
+            <input id="email" type="text" placeholder="Email (optional)" maxlength="120" aria-label="Your email (optional)">
+          </div>
+
+          <textarea id="comment" placeholder="Write your comment..." required aria-label="Comment text"></textarea>
+
+          <button type="submit" class="btn" aria-label="Post comment">Post comment</button>
+          <button type="button" id="clear-comments" class="btn secondary" aria-label="Clear all comments">Clear all</button>
+        </form>
+
+        <div id="comments-list" class="comments-list" aria-live="polite" aria-relevant="additions removals">
+          <!-- comments inserted here -->
+        </div>
+      </section>
+    </article>
+  </div>
+
+  <script>
+    // ---------- Utilities ----------
+    const $ = sel => document.querySelector(sel);
+    const escapeHtml = (str) => {
+      // simple escaping to avoid XSS when inserting user input as HTML
+      if (!str) return '';
+      return str.replace(/[&<>"'\/]/g, function (s) {
+        const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;'};
+        return map[s];
+      });
+    };
+
+    function timeAgo(dateISO) {
+      const d = new Date(dateISO);
+      const diff = Math.floor((Date.now() - d.getTime()) / 1000); // seconds
+      if (diff < 60) return diff + 's';
+      if (diff < 3600) return Math.floor(diff/60) + 'm';
+      if (diff < 86400) return Math.floor(diff/3600) + 'h';
+      const days = Math.floor(diff/86400);
+      return days + (days === 1 ? ' day' : ' days');
+    }
+
+    // ---------- Comments storage ----------
+    const POST_KEY = 'blog_comments_v1'; // structure: { postId: [ {id, name, email, text, createdAt} ] }
+    function loadAll() {
+      try {
+        const raw = localStorage.getItem(POST_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        console.error('Failed to parse comments from localStorage', e);
+        return {};
+      }
+    }
+    function saveAll(data) {
+      localStorage.setItem(POST_KEY, JSON.stringify(data));
+    }
+
+    // ---------- Rendering ----------
+    const commentsListEl = $('#comments-list');
+    const postId = document.querySelector('.post').getAttribute('data-post-id');
+
+    function renderComments() {
+      const all = loadAll();
+      const comments = (all[postId] || []).slice().reverse(); // newest first
+      commentsListEl.innerHTML = '';
+
+      if (comments.length === 0) {
+        commentsListEl.innerHTML = '<div class="small" style="padding:10px 6px">No comments yet — be the first!</div>';
+        return;
+      }
+
+      comments.forEach(c => {
+        const el = document.createElement('div');
+        el.className = 'comment';
+        // avatar letter from name
+        const initial = (c.name || 'A').trim().charAt(0).toUpperCase();
+        const safeName = escapeHtml(c.name || 'Anonymous');
+        const safeText = escapeHtml(c.text).replace(/\n/g,'<br>');
+        const time = timeAgo(c.createdAt);
+
+        el.innerHTML = `
+          <div class="avatar" aria-hidden="true">${initial}</div>
+          <div class="comment-body">
+            <div class="who">
+              <strong>${safeName}</strong>
+              <span class="time">· ${time} ago</span>
+            </div>
+            <p>${safeText}</p>
+            <div class="small" style="margin-top:8px">Email: ${escapeHtml(c.email || '—')}</div>
+          </div>
+          <div class="comment-actions" aria-hidden="true">
+            <button class="btn secondary" data-action="delete" data-id="${c.id}" title="Delete comment">Delete</button>
+          </div>
+        `;
+        commentsListEl.appendChild(el);
+      });
+    }
+
+    // ---------- Actions ----------
+    function addComment({name, email, text}) {
+      const all = loadAll();
+      const list = all[postId] || [];
+      list.push({
+        id: cryptoRandomId(),
+        name: name || 'Anonymous',
+        email: email || '',
+        text,
+        createdAt: new Date().toISOString()
+      });
+      all[postId] = list;
+      saveAll(all);
+      renderComments();
+    }
+
+    function removeCommentById(id) {
+      const all = loadAll();
+      const list = (all[postId] || []).filter(c => c.id !== id);
+      all[postId] = list;
+      saveAll(all);
+      renderComments();
+    }
+
+    function clearAllComments() {
+      const all = loadAll();
+      delete all[postId];
+      saveAll(all);
+      renderComments();
+    }
+
+    // small id generator (not cryptographically necessary)
+    function cryptoRandomId(){
+      // use crypto API when available
+      if (window.crypto && crypto.getRandomValues) {
+        const arr = new Uint32Array(4);
+        crypto.getRandomValues(arr);
+        return Array.from(arr).map(n => n.toString(36)).join('');
+      } else {
+        return 'id-' + Math.random().toString(36).slice(2,9);
+      }
+    }
+
+    // ---------- Form handling ----------
+    document.getElementById('comment-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const name = document.getElementById('name').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const comment = document.getElementById('comment').value.trim();
+
+      if (!comment) {
+        alert('Please write a comment.');
+        return;
+      }
+
+      // optional: simple email validation if provided
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        if (!confirm('Email looks invalid. Post anyway?')) return;
+      }
+
+      addComment({name, email, text: comment});
+
+      // reset comment field (keep name & email for convenience)
+      document.getElementById('comment').value = '';
+      // move focus back to comment box
+      document.getElementById('comment').focus();
+    });
+
+    // delegate delete buttons
+    commentsListEl.addEventListener('click', function (e) {
+      const btn = e.target.closest('button[data-action="delete"]');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      if (!id) return;
+      if (confirm('Delete this comment?')) removeCommentById(id);
+    });
+
+    // clear all
+    document.getElementById('clear-comments').addEventListener('click', function () {
+      if (confirm('Clear all comments for this post? This cannot be undone.')) clearAllComments();
+    });
+
+    // initial render
+    renderComments();
+
+    // Optional: periodically update "time ago" text (every 30s)
+    setInterval(renderComments, 30 * 1000);
+  </script>
+</body>
+</html>
